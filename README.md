@@ -2,6 +2,8 @@
 
 > **Dev by UHQ for UHQ user**
 
+![ObliQ Screenshot](screenshot.png)
+
 ObliQ is a real-time audio processing application for Windows. It intercepts your system audio output and applies professional-grade DSP — compression, EQ, loudness maximization, and creative modes — with zero latency overhead and no external dependencies.
 
 ---
