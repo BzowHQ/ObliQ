@@ -29,6 +29,63 @@ ObliQ is a real-time audio processing application for Windows. It intercepts you
 
 - Windows 10 / 11 (x64)
 - WASAPI-compatible audio device
+- **VB-Audio Virtual Cable** — required to route processed audio to other apps (Discord, OBS, etc.)
+
+---
+
+## Setup Guide
+
+### Step 1 — Install VB-Audio Virtual Cable
+
+ObliQ processes your audio and outputs it to a virtual device. Other applications (Discord, OBS, games, etc.) can then use this virtual device as their microphone/input.
+
+1. Download **VB-Audio Virtual Cable** (free) : [https://vb-audio.com/Cable/index.htm](https://vb-audio.com/Cable/index.htm)
+2. Extract the zip and run `VBCABLE_Setup_x64.exe` as **Administrator**
+3. Click **Install Driver** and restart your PC
+
+You should now see two new devices in Windows:
+- `CABLE Input (VB-Audio Virtual Cable)` — virtual output
+- `CABLE Output (VB-Audio Virtual Cable)` — virtual microphone
+
+---
+
+### Step 2 — Configure ObliQ
+
+1. Launch `AudioBeast.exe`
+2. In the **Input** dropdown → select your real audio source (e.g. your microphone, or a loopback device)
+3. In the **Output** dropdown → select **`CABLE Input (VB-Audio Virtual Cable)`**
+4. Click **MONITOR** to start processing
+
+ObliQ will now intercept the audio, apply DSP, and send the result to the virtual cable.
+
+---
+
+### Step 3 — Use in Discord / OBS / any app
+
+**Discord:**
+1. Settings → Voice & Video
+2. Input Device → `CABLE Output (VB-Audio Virtual Cable)`
+
+**OBS:**
+1. Add a source → Audio Input Capture
+2. Device → `CABLE Output (VB-Audio Virtual Cable)`
+
+**Any other app:** set the microphone / audio input to `CABLE Output (VB-Audio Virtual Cable)`
+
+---
+
+### Step 4 — Tune the sound
+
+| Slider | Tip |
+|---|---|
+| **INPUT GAIN** | Boost your source signal before processing |
+| **VOLUME** | Control output loudness |
+| **NORMAL** | Clean, loud, transparent — good for most uses |
+| **ROOM** | Adds reverb / bathroom acoustic effect |
+| **HARD** | Extreme saturation — use with caution |
+| **MIX / DECAY / WALL** | Fine-tune the Room reverb (only active in ROOM mode) |
+
+Settings are saved automatically when you close the app.
 
 ---
 
