@@ -250,9 +250,14 @@ struct Reverb {
 };
 
 struct Panner8D {
-    float phase   = 0.f;
-    float rate_hz = 0.25f;
-    float depth   = 1.0f;
+    static const int DEL_SIZE = 64; // power of 2, covers max ITD ~31 samples
+    float delBuf[DEL_SIZE] = {};
+    int   dhead      = 0;
+
+    float phase      = 0.f;
+    float elev_phase = 0.f;
+    float rate_hz    = 0.12f;
+    float depth      = 1.0f;
 
     void configure(float rate, float dep) {
         rate_hz = rate;
@@ -260,16 +265,45 @@ struct Panner8D {
     }
 
     inline void processSample(float inL, float inR, float& outL, float& outR) {
-        float pan = sinf(phase) * depth;
+        float mono = (inL + inR) * 0.5f;
+
+        delBuf[dhead] = mono;
+
+        // Primary LFO: azimuth rotation (-1=left, +1=right)
+        float az_raw = sinf(phase) * depth;
         phase += 2.f * PI * rate_hz / SAMPLE_RATE;
         if (phase >= 2.f * PI) phase -= 2.f * PI;
-        float panR = (pan + 1.f) * 0.5f;
-        float panL = 1.f - panR;
-        float gainL = sqrtf(panL);
-        float gainR = sqrtf(panR);
-        float mono = (inL + inR) * 0.5f;
-        outL = mono * gainL;
-        outR = mono * gainR;
+
+        float az = az_raw;
+
+        // Secondary LFO: elevation (slower, incoherent)
+        elev_phase += 2.f * PI * (rate_hz * 0.41f) / SAMPLE_RATE;
+        if (elev_phase >= 2.f * PI) elev_phase -= 2.f * PI;
+        float elev = sinf(elev_phase) * 0.18f * depth;
+
+        // ITD: max ~31 samples (0.645ms at 48kHz) — perceptually most impactful
+        int itd = (int)(fabsf(az) * 31.f);
+
+        float near_s = delBuf[dhead];
+        float far_s  = delBuf[(dhead - itd + DEL_SIZE) & (DEL_SIZE - 1)];
+
+        dhead = (dhead + 1) & (DEL_SIZE - 1);
+
+        // ILD: head-shadow attenuation on contralateral ear
+        float ild = 1.f - 0.52f * fabsf(az);
+
+        if (az >= 0.f) {
+            outL = far_s  * ild;
+            outR = near_s;
+        } else {
+            outL = near_s;
+            outR = far_s  * ild;
+        }
+
+        // Elevation: subtle amplitude modulation simulating pinna
+        float ev = 1.f + elev;
+        outL *= ev;
+        outR *= ev;
     }
 };
 
@@ -519,8 +553,9 @@ struct DSPState {
             panner.processSample(L, R, pL, pR);
             float wetL, wetR;
             reverb.processSample(pL, pR, wetL, wetR);
-            L = pL * 0.7f + wetL * 0.3f;
-            R = pR * 0.7f + wetR * 0.3f;
+            // 40% reverb for spaciousness, preserve binaural cues
+            L = pL * 0.60f + wetL * 0.40f;
+            R = pR * 0.60f + wetR * 0.40f;
         }
 
         float vol = volume.load(std::memory_order_relaxed);
