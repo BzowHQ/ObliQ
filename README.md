@@ -74,6 +74,29 @@ ObliQ will now intercept the audio, apply DSP, and send the result to the virtua
 
 ---
 
+### Alternative — Using VoiceMeeter Banana
+
+If you already have **VoiceMeeter Banana** installed, you don't need VB-Audio Virtual Cable separately — VoiceMeeter comes with its own virtual devices.
+
+**Route your mic through ObliQ into VoiceMeeter:**
+
+1. In ObliQ:
+   - **Input** → your real microphone
+   - **Output** → `VoiceMeeter Input (VB-Audio VoiceMeeter VAIO)` *(or VoiceMeeter Aux Input)*
+   - Click **MONITOR**
+
+2. In VoiceMeeter Banana:
+   - Hardware Input 1 → set to your real mic (as usual)
+   - Hardware Input 2 → set to `VoiceMeeter Output (VB-Audio VoiceMeeter VAIO)` to receive ObliQ's processed signal
+   - Route Hardware Input 2 to your desired bus (B1 for Discord, A1 for speakers, etc.)
+
+3. In Discord / OBS:
+   - Input Device → `VoiceMeeter Output (VB-Audio VoiceMeeter VAIO)`
+
+> **Tip:** You can also use ObliQ on your music/desktop audio — set ObliQ's Input to a loopback device and Output to a VoiceMeeter virtual input, then mix it alongside your mic in VoiceMeeter.
+
+---
+
 ### Step 4 — Tune the sound
 
 | Slider | Tip |
