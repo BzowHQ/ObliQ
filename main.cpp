@@ -404,7 +404,7 @@ struct Spectrum {
     }
 };
 
-enum class Mode { Normal, Room, Hard, Night, Pan8D };
+enum class Mode { Normal, Room, Hard, Night, Pan8D, Combo };
 
 struct DSPState {
     Biquad eq_lowcut;
@@ -553,9 +553,26 @@ struct DSPState {
             panner.processSample(L, R, pL, pR);
             float wetL, wetR;
             reverb.processSample(pL, pR, wetL, wetR);
-            // 40% reverb for spaciousness, preserve binaural cues
             L = pL * 0.60f + wetL * 0.40f;
             R = pR * 0.60f + wetR * 0.40f;
+        } else if (m == Mode::Combo) {
+            // Room color: single LPF pass (lighter than full Room) + bass
+            L *= 0.75f; R *= 0.75f;
+            L = room_lpf.processSampleL(L);
+            R = room_lpf.processSampleR(R);
+            L = room_bass.processSampleL(L);
+            R = room_bass.processSampleR(R);
+            L = room_thump.processSampleL(L);
+            R = room_thump.processSampleR(R);
+            L = softclip(L); R = softclip(R);
+            // 8D binaural rotation on the room-colored signal
+            float pL, pR;
+            panner.processSample(L, R, pL, pR);
+            // Reverb for depth
+            float wetL, wetR;
+            reverb.processSample(pL, pR, wetL, wetR);
+            L = pL * 0.55f + wetL * 0.45f;
+            R = pR * 0.55f + wetR * 0.45f;
         }
 
         float vol = volume.load(std::memory_order_relaxed);
@@ -930,6 +947,7 @@ static void StopAudio() {
 #define IDC_BTN_MODE2    1032
 #define IDC_BTN_MODE3    1033
 #define IDC_BTN_MODE4    1034
+#define IDC_BTN_MODE5    1035
 #define IDC_TIMER_SPEC   2001
 
 #define WIN_W 1200
@@ -1220,7 +1238,7 @@ static void PaintWindow(HWND hwnd) {
     DrawLabel(memDC, L"CAPTURE DEVICE", 10,  50, 230, 14, g_font_sm, COL_GRAY, DT_LEFT|DT_VCENTER|DT_SINGLELINE);
     DrawLabel(memDC, L"OUTPUT DEVICE",  245, 50, 230, 14, g_font_sm, COL_GRAY, DT_LEFT|DT_VCENTER|DT_SINGLELINE);
     DrawLabel(memDC, L"DISCORD OUT",    480, 50, 230, 14, g_font_sm, COL_GRAY, DT_LEFT|DT_VCENTER|DT_SINGLELINE);
-    DrawLabel(memDC, L"-- MODE --",     928, 50, 262, 14, g_font_sm, COL_GRAY, DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+    DrawLabel(memDC, L"-- MODE --",     928, 50, 272, 14, g_font_sm, COL_GRAY, DT_LEFT|DT_VCENTER|DT_SINGLELINE);
 
     DrawLabel(memDC, L"INPUT GAIN", 10,  112, 120, 14, g_font_sm, COL_GRAY, DT_CENTER|DT_SINGLELINE);
     DrawLabel(memDC, L"VOLUME",     145, 112, 80,  14, g_font_sm, COL_GRAY, DT_CENTER|DT_SINGLELINE);
@@ -1382,9 +1400,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         SendMessage(hStart, WM_SETFONT, (WPARAM)g_font_sm, TRUE);
         SendMessage(hStop,  WM_SETFONT, (WPARAM)g_font_sm, TRUE);
 
-        static const wchar_t* mode_btn_labels[] = {L"NORMAL", L"ROOM", L"HARD", L"NIGHT", L"8D"};
-        for (int i = 0; i < 5; i++)
-            CreateODBtn(hwnd, IDC_BTN_MODE0+i, mode_btn_labels[i], 928 + i*52, 66, 48, 26);
+        static const wchar_t* mode_btn_labels[] = {L"NORMAL", L"ROOM", L"HARD", L"NIGHT", L"8D", L"8D+R"};
+        for (int i = 0; i < 6; i++)
+            CreateODBtn(hwnd, IDC_BTN_MODE0+i, mode_btn_labels[i], 928 + i*45, 66, 41, 26);
 
         CreateSlider(hwnd, IDC_SLD_GAIN,    10,  145, 120, 22, 0, 1000, 600);
         CreateSlider(hwnd, IDC_SLD_VOLUME, 145,  145,  80, 22, 0, 800, 400);
@@ -1429,7 +1447,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             InvalidateRect(hwnd, nullptr, FALSE);
             break;
         }
-        if (id >= IDC_BTN_MODE0 && id <= IDC_BTN_MODE4) {
+        if (id >= IDC_BTN_MODE0 && id <= IDC_BTN_MODE5) {
             g_active_mode = id - IDC_BTN_MODE0;
             g_dsp.mode_i.store(g_active_mode);
             InvalidateRect(hwnd, nullptr, FALSE);
@@ -1474,7 +1492,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             return TRUE;
         }
 
-        if (id >= IDC_BTN_MODE0 && id <= IDC_BTN_MODE4) {
+        if (id >= IDC_BTN_MODE0 && id <= IDC_BTN_MODE5) {
             int idx = id - IDC_BTN_MODE0;
             bool active  = (g_active_mode == idx);
             bool pressed = (di->itemState & ODS_SELECTED) != 0;
