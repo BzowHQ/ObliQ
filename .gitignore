@@ -1,0 +1,21 @@
+# Build output
+*.exe
+*.obj
+*.res
+*.pdb
+*.ilk
+*.exp
+*.lib
+
+# Logs
+*.log
+*.txt
+!README.md
+
+# User settings
+AudioBeast.ini
+
+# VS / IDE
+.vs/
+*.user
+*.suo
