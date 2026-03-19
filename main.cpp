@@ -1235,10 +1235,10 @@ static void PaintWindow(HWND hwnd) {
     COLORREF stcol = g_audio_started ? COL_WHITE : COL_GRAY;
     DrawLabel(memDC, status, WIN_W-155, 6, 145, 20, g_font_md, stcol, DT_RIGHT|DT_VCENTER|DT_SINGLELINE);
 
-    DrawLabel(memDC, L"CAPTURE DEVICE", 10,  50, 230, 14, g_font_sm, COL_GRAY, DT_LEFT|DT_VCENTER|DT_SINGLELINE);
-    DrawLabel(memDC, L"OUTPUT DEVICE",  245, 50, 230, 14, g_font_sm, COL_GRAY, DT_LEFT|DT_VCENTER|DT_SINGLELINE);
-    DrawLabel(memDC, L"DISCORD OUT",    480, 50, 230, 14, g_font_sm, COL_GRAY, DT_LEFT|DT_VCENTER|DT_SINGLELINE);
-    DrawLabel(memDC, L"-- MODE --",     928, 50, 272, 14, g_font_sm, COL_GRAY, DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+    DrawLabel(memDC, L"CAPTURE DEVICE", 10,  50, 185, 14, g_font_sm, COL_GRAY, DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+    DrawLabel(memDC, L"OUTPUT DEVICE",  199, 50, 185, 14, g_font_sm, COL_GRAY, DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+    DrawLabel(memDC, L"DISCORD OUT",    388, 50, 185, 14, g_font_sm, COL_GRAY, DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+    DrawLabel(memDC, L"-- MODE --",     769, 50, 421, 14, g_font_sm, COL_GRAY, DT_CENTER|DT_VCENTER|DT_SINGLELINE);
 
     DrawLabel(memDC, L"INPUT GAIN", 10,  112, 120, 14, g_font_sm, COL_GRAY, DT_CENTER|DT_SINGLELINE);
     DrawLabel(memDC, L"VOLUME",     145, 112, 80,  14, g_font_sm, COL_GRAY, DT_CENTER|DT_SINGLELINE);
@@ -1368,7 +1368,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         HWND hCap = CreateWindowExW(0, L"COMBOBOX", nullptr,
             WS_CHILD|WS_VISIBLE|CBS_DROPDOWNLIST|WS_VSCROLL,
-            10, 66, 230, 200, hwnd, (HMENU)IDC_CMB_CAPTURE,
+            10, 66, 185, 200, hwnd, (HMENU)IDC_CMB_CAPTURE,
             GetModuleHandle(nullptr), nullptr);
         for (auto& d : g_cap_devs)
             SendMessageW(hCap, CB_ADDSTRING, 0, (LPARAM)d.name.c_str());
@@ -1377,7 +1377,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         HWND hRen = CreateWindowExW(0, L"COMBOBOX", nullptr,
             WS_CHILD|WS_VISIBLE|CBS_DROPDOWNLIST|WS_VSCROLL,
-            245, 66, 230, 200, hwnd, (HMENU)IDC_CMB_RENDER,
+            199, 66, 185, 200, hwnd, (HMENU)IDC_CMB_RENDER,
             GetModuleHandle(nullptr), nullptr);
         for (auto& d : g_ren_devs)
             SendMessageW(hRen, CB_ADDSTRING, 0, (LPARAM)d.name.c_str());
@@ -1386,7 +1386,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         HWND hVirt = CreateWindowExW(0, L"COMBOBOX", nullptr,
             WS_CHILD|WS_VISIBLE|CBS_DROPDOWNLIST|WS_VSCROLL,
-            480, 66, 230, 200, hwnd, (HMENU)IDC_CMB_VIRTUAL,
+            388, 66, 185, 200, hwnd, (HMENU)IDC_CMB_VIRTUAL,
             GetModuleHandle(nullptr), nullptr);
         SendMessageW(hVirt, CB_ADDSTRING, 0, (LPARAM)L"-- None --");
         for (auto& d : g_ren_devs)
@@ -1394,15 +1394,15 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         SendMessage(hVirt, CB_SETCURSEL, 0, 0);
         SendMessage(hVirt, WM_SETFONT, (WPARAM)g_font_sm, TRUE);
 
-        HWND hStart = CreateBtn(hwnd, IDC_BTN_START,   L"START",   717, 66, 52, 26);
-        HWND hStop  = CreateBtn(hwnd, IDC_BTN_STOP,    L"STOP",    773, 66, 52, 26);
-        CreateODBtn(hwnd, IDC_BTN_MONITOR, L"", 829, 66, 92, 26);
+        HWND hStart = CreateBtn(hwnd, IDC_BTN_START,   L"START",   577, 66, 48, 26);
+        HWND hStop  = CreateBtn(hwnd, IDC_BTN_STOP,    L"STOP",    629, 66, 48, 26);
+        CreateODBtn(hwnd, IDC_BTN_MONITOR, L"", 681, 66, 84, 26);
         SendMessage(hStart, WM_SETFONT, (WPARAM)g_font_sm, TRUE);
         SendMessage(hStop,  WM_SETFONT, (WPARAM)g_font_sm, TRUE);
 
         static const wchar_t* mode_btn_labels[] = {L"NORMAL", L"ROOM", L"HARD", L"NIGHT", L"8D", L"8D+R"};
         for (int i = 0; i < 6; i++)
-            CreateODBtn(hwnd, IDC_BTN_MODE0+i, mode_btn_labels[i], 928 + i*45, 66, 41, 26);
+            CreateODBtn(hwnd, IDC_BTN_MODE0+i, mode_btn_labels[i], 769 + i*71, 66, 69, 26);
 
         CreateSlider(hwnd, IDC_SLD_GAIN,    10,  145, 120, 22, 0, 1000, 600);
         CreateSlider(hwnd, IDC_SLD_VOLUME, 145,  145,  80, 22, 0, 800, 400);
