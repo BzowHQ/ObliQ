@@ -1,6 +1,5 @@
-// AudioBeast - Professional Audio Processor
-// WASAPI + Win32 GDI - No external dependencies
-// Architecture: Lock-free SPSC ring buffer, per-sample DSP, Cooley-Tukey FFT
+// ObliQ - Professional Audio Processor
+// WASAPI + Win32 GDI
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -32,21 +31,15 @@
 #pragma comment(lib, "gdi32.lib")
 #pragma comment(lib, "user32.lib")
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Constants
-// ─────────────────────────────────────────────────────────────────────────────
 static const int   SAMPLE_RATE  = 48000;
 static const int   CHANNELS     = 2;
 static const int   BLOCK_SIZE   = 512;
 static const int   FFT_SIZE     = 2048;
-static const int   RING_FRAMES  = 65536;  // must be power of 2
+static const int   RING_FRAMES  = 65536;
 static const float PI           = 3.14159265358979323846f;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Lock-free SPSC ring buffer (stereo float)
-// ─────────────────────────────────────────────────────────────────────────────
 struct RingBuffer {
-    float  data[RING_FRAMES * 2];  // interleaved L/R
+    float  data[RING_FRAMES * 2];
     std::atomic<int> wpos{0};
     std::atomic<int> rpos{0};
 
@@ -58,7 +51,6 @@ struct RingBuffer {
         return (w - r + RING_FRAMES) & (RING_FRAMES - 1);
     }
 
-    // returns frames written
     int write(const float* src, int frames) {
         int w = wpos.load(std::memory_order_relaxed);
         int r = rpos.load(std::memory_order_acquire);
@@ -88,9 +80,6 @@ struct RingBuffer {
     }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DSP: Biquad filter (Audio EQ Cookbook)
-// ─────────────────────────────────────────────────────────────────────────────
 struct Biquad {
     double b0=1,b1=0,b2=0,a1=0,a2=0;
     double z1L=0,z2L=0,z1R=0,z2R=0;
@@ -178,9 +167,6 @@ struct Biquad {
     }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DSP: Per-sample Compressor / Limiter
-// ─────────────────────────────────────────────────────────────────────────────
 struct Compressor {
     float env   = 0.f;
     float att   = 0.f;
@@ -209,9 +195,6 @@ struct Compressor {
     }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DSP: Hard clipper / limiter
-// ─────────────────────────────────────────────────────────────────────────────
 inline float hardclip(float x, float ceiling = 0.98f) {
     if (x >  ceiling) return  ceiling;
     if (x < -ceiling) return -ceiling;
@@ -219,16 +202,12 @@ inline float hardclip(float x, float ceiling = 0.98f) {
 }
 
 inline float softclip(float x) {
-    // tanh approximation (Pade)
     float x2 = x*x;
     return x*(27.f+x2)/(27.f+9.f*x2);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DSP: Multi-tap reverb (7 taps per channel) — used by 8D and Room mode
-// ─────────────────────────────────────────────────────────────────────────────
 static const int REV_TAPS = 7;
-static const int REV_BUF  = 65536; // must be power of 2
+static const int REV_BUF  = 65536;
 
 struct Reverb {
     float bufL[REV_BUF] = {};
@@ -270,13 +249,10 @@ struct Reverb {
     }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DSP: 8D Auto-panner (LFO with smoothed sine)
-// ─────────────────────────────────────────────────────────────────────────────
 struct Panner8D {
     float phase   = 0.f;
-    float rate_hz = 0.25f;  // default 0.25 Hz
-    float depth   = 1.0f;   // 0..1
+    float rate_hz = 0.25f;
+    float depth   = 1.0f;
 
     void configure(float rate, float dep) {
         rate_hz = rate;
@@ -284,28 +260,19 @@ struct Panner8D {
     }
 
     inline void processSample(float inL, float inR, float& outL, float& outR) {
-        // sine pan LFO
-        float pan = sinf(phase) * depth;  // -1..+1
+        float pan = sinf(phase) * depth;
         phase += 2.f * PI * rate_hz / SAMPLE_RATE;
         if (phase >= 2.f * PI) phase -= 2.f * PI;
-
-        // Equal-power pan
-        float panR = (pan + 1.f) * 0.5f;   // 0..1
+        float panR = (pan + 1.f) * 0.5f;
         float panL = 1.f - panR;
         float gainL = sqrtf(panL);
         float gainR = sqrtf(panR);
-
-        // Mix both source channels to both outputs with pan
         float mono = (inL + inR) * 0.5f;
         outL = mono * gainL;
         outR = mono * gainR;
     }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Loudness Maximizer (block-level AGC → brickwall limiter)
-// Pushes average RMS toward target, then hard limits peaks
-// ─────────────────────────────────────────────────────────────────────────────
 struct LoudnessMax {
     float gain     = 1.f;
     float att      = 0.f;
@@ -314,25 +281,20 @@ struct LoudnessMax {
     float max_gain = 80.f;
 
     void init() {
-        att = expf(-1.f / (SAMPLE_RATE * 0.008f));  // 8ms attack
-        rel = expf(-1.f / (SAMPLE_RATE * 0.8f));   // 800ms release
+        att = expf(-1.f / (SAMPLE_RATE * 0.008f));
+        rel = expf(-1.f / (SAMPLE_RATE * 0.8f));
     }
 
     void processBlock(float* buf, int frames) {
-        // Compute block RMS
         float sum = 0.f;
         for (int i = 0; i < frames; i++) {
             float m = (buf[i*2] + buf[i*2+1]) * 0.5f;
             sum += m * m;
         }
         float rms = sqrtf(sum / (float)frames + 1e-12f);
-
-        // Desired AGC gain toward target RMS
         float want = target / rms;
         if (want > max_gain) want = max_gain;
         if (want < 0.1f)     want = 0.1f;
-
-        // Smooth gain tracking
         float coeff = (want < gain) ? att : rel;
         gain = coeff * gain + (1.f - coeff) * want;
 
@@ -343,13 +305,9 @@ struct LoudnessMax {
     }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Cooley-Tukey in-place FFT (radix-2, iterative)
-// ─────────────────────────────────────────────────────────────────────────────
 struct Complex { float re, im; };
 
 static void fft(Complex* x, int N) {
-    // bit-reversal permutation
     for (int i = 1, j = 0; i < N; i++) {
         int bit = N >> 1;
         for (; j & bit; bit >>= 1) j ^= bit;
@@ -375,13 +333,10 @@ static void fft(Complex* x, int N) {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Spectrum analyser (thread-safe, double-buffered magnitude)
-// ─────────────────────────────────────────────────────────────────────────────
 static const int SPEC_BINS = FFT_SIZE / 2;
 
 struct Spectrum {
-    float  capture[FFT_SIZE * 2] = {};  // interleaved, fill ring
+    float  capture[FFT_SIZE * 2] = {};
     int    cap_head = 0;
     float  window[FFT_SIZE];
     Complex fft_buf[FFT_SIZE];
@@ -390,7 +345,6 @@ struct Spectrum {
     float  mag_front[SPEC_BINS] = {};
 
     void init() {
-        // Hann window
         for (int i = 0; i < FFT_SIZE; i++)
             window[i] = 0.5f * (1.f - cosf(2.f*PI*i/(FFT_SIZE-1)));
     }
@@ -401,7 +355,6 @@ struct Spectrum {
             capture[cap_head * 2+1] = stereo[i * 2 + 1];
             cap_head = (cap_head + 1) % FFT_SIZE;
         }
-        // Compute every block
         for (int i = 0; i < FFT_SIZE; i++) {
             float mono = (capture[((cap_head+i)%FFT_SIZE)*2] +
                           capture[((cap_head+i)%FFT_SIZE)*2+1]) * 0.5f;
@@ -410,49 +363,39 @@ struct Spectrum {
         fft(fft_buf, FFT_SIZE);
         for (int i = 0; i < SPEC_BINS; i++) {
             float m = sqrtf(fft_buf[i].re*fft_buf[i].re + fft_buf[i].im*fft_buf[i].im) / (FFT_SIZE*0.5f);
-            mag_back[i] = mag_back[i] * 0.8f + m * 0.2f;  // smooth
+            mag_back[i] = mag_back[i] * 0.8f + m * 0.2f;
         }
         memcpy(mag_front, mag_back, sizeof(mag_front));
         ready.store(true, std::memory_order_release);
     }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Audio processing pipeline (runs in render thread)
-// ─────────────────────────────────────────────────────────────────────────────
 enum class Mode { Normal, Room, Hard, Night, Pan8D };
 
 struct DSPState {
-    // EQ bands
-    Biquad eq_lowcut;   // HPF 80Hz
-    Biquad eq_bass;     // low shelf ~100Hz
-    Biquad eq_mid;      // peaking ~1kHz
-    Biquad eq_presence; // peaking ~5kHz
-    Biquad eq_air;      // high shelf ~12kHz
+    Biquad eq_lowcut;
+    Biquad eq_bass;
+    Biquad eq_mid;
+    Biquad eq_presence;
+    Biquad eq_air;
 
-    // Dynamics
     Compressor comp;
     Compressor limiter;
 
-    // Effects
-    Reverb     reverb;
-    Panner8D      panner;
-    LoudnessMax   loudmax;
+    Reverb      reverb;
+    Panner8D    panner;
+    LoudnessMax loudmax;
 
-    // Room mode dedicated filters (fixed, not user-controlled)
-    Biquad room_lpf;    // LPF ~850Hz: cuts highs like a wall/door
-    Biquad room_lpf2;   // 2nd-order cascade for steeper muffling
-    Biquad room_bass;   // low shelf +5dB @ 120Hz: bass passes through walls
-    Biquad room_thump;  // peaking +3dB @ 100Hz: nightclub kick thump
+    Biquad room_lpf;
+    Biquad room_lpf2;
+    Biquad room_bass;
+    Biquad room_thump;
 
-    // Mode
     Mode mode = Mode::Normal;
 
-    // Transparent stereo-linked instantaneous limiter state
     float lim_env = 0.f;
-    float lim_rel = 0.f;   // release coefficient (set in init)
+    float lim_rel = 0.f;
 
-    // Params (written from UI thread, read from audio thread)
     std::atomic<float> gain_db{0.f};
     std::atomic<float> volume{1.f};
     std::atomic<float> bass_db{0.f};
@@ -466,7 +409,7 @@ struct DSPState {
     std::atomic<float> reverb_wall{0.4f};
     std::atomic<float> pan8d_rate{0.25f};
     std::atomic<float> pan8d_depth{1.f};
-    std::atomic<int>   mode_i{0};  // 0=Normal,1=Room,2=Hard,3=Night,4=Pan8D
+    std::atomic<int>   mode_i{0};
     std::atomic<bool>  monitor{true};
     std::atomic<bool>  eq_enabled{true};
 
@@ -479,16 +422,15 @@ struct DSPState {
 
         comp.configure(0.3f, 6.f, 5.f, 80.f, 1.0f);
         limiter.configure(0.90f, 100.f, 0.05f, 30.f, 1.0f);
-        lim_rel = expf(-1.f / (SAMPLE_RATE * 0.08f)); // 80ms release
+        lim_rel = expf(-1.f / (SAMPLE_RATE * 0.08f));
         reverb.configure(0.4f, 0.5f);
         panner.configure(0.25f, 1.0f);
         loudmax.init();
 
-        // Room mode fixed filters (nightclub bathroom effect)
-        room_lpf.lowpass(850.0, 0.6);       // wall muffling — kills highs
-        room_lpf2.lowpass(850.0, 0.6);      // 2nd cascade → steeper rolloff
-        room_bass.lowshelf(120.0, 2.5);     // bass shelf +2.5dB (subtle)
-        room_thump.peaking(95.0, 1.5, 1.2); // kick thump +1.5dB (subtle)
+        room_lpf.lowpass(850.0, 0.6);
+        room_lpf2.lowpass(850.0, 0.6);
+        room_bass.lowshelf(120.0, 2.5);
+        room_thump.peaking(95.0, 1.5, 1.2);
     }
 
     void update_from_params() {
@@ -516,14 +458,11 @@ struct DSPState {
         mode = static_cast<Mode>(mode_i.load(std::memory_order_relaxed));
     }
 
-    // Process one stereo sample
     void processSample(float& L, float& R) {
-        // 1. Input gain
         float gain_lin = powf(10.f, gain_db.load(std::memory_order_relaxed) / 20.f);
         L *= gain_lin;
         R *= gain_lin;
 
-        // 2. EQ
         if (eq_enabled.load(std::memory_order_relaxed)) {
             L = eq_lowcut.processSampleL(L);
             R = eq_lowcut.processSampleR(R);
@@ -537,34 +476,20 @@ struct DSPState {
             R = eq_air.processSampleR(R);
         }
 
-        // 3. Compressor
         L = comp.processSample(L);
         R = comp.processSample(R);
 
-        // 4. Mode-specific processing
         Mode m = mode;
         if (m == Mode::Hard) {
-            // ── DESTRUCTION TOTALE ─────────────────────────────────────────
-            // Etage 1: overdrive extreme (x50) → quasi onde carree
             L = softclip(L * 50.f);
             R = softclip(R * 50.f);
-            // Etage 2: re-drive la sortie saturee
             L = softclip(L * 15.f);
             R = softclip(R * 15.f);
-            // Etage 3: saturation finale + boost
             L = softclip(L * 6.f) * 1.1f;
             R = softclip(R * 6.f) * 1.1f;
         } else if (m == Mode::Room) {
-            // ── Nightclub bathroom: son etouffé derriere un mur ───────────
-            // DECAY slider = taille de la piece (petit = court, grand = long)
-            // WALL slider  = materiau (haut = carrelage brillant, bas = mur absorbant)
-            // MIX slider   = quantite de reverb (sec <-> reverberant)
-
-            // 1. Attenuate before EQ chain to prevent overload
             L *= 0.65f;
             R *= 0.65f;
-
-            // 2. Wall EQ: hauts coupés, basses légèrement amplifiées
             L = room_lpf.processSampleL(L);
             R = room_lpf.processSampleR(R);
             L = room_lpf2.processSampleL(L);
@@ -573,50 +498,38 @@ struct DSPState {
             R = room_bass.processSampleR(R);
             L = room_thump.processSampleL(L);
             R = room_thump.processSampleR(R);
-
-            // 3. Soft clip to prevent reverb overload
             L = softclip(L);
             R = softclip(R);
-
-            // 4. Reduire le stereo (petite piece = son plus mono)
             float mid  = (L + R) * 0.5f;
             float side = (L - R) * 0.5f * 0.30f;
             L = mid + side;
             R = mid - side;
-
-            // 5. Reverb (DECAY = taille piece, WALL = materiau, MIX = sec/reverberant)
             float wetL, wetR;
             reverb.processSample(L, R, wetL, wetR);
             float rmix = reverb_mix.load(std::memory_order_relaxed);
             L = L * (1.f - rmix) + wetL * rmix;
             R = R * (1.f - rmix) + wetR * rmix;
         } else if (m == Mode::Night) {
-            // Heavy multiband compression + gentle roll-off
-            L = comp.processSample(L);  // double compress
+            L = comp.processSample(L);
             R = comp.processSample(R);
-            // Soft knee limit at -6dB
             L = softclip(L * 1.4f) * 0.71f;
             R = softclip(R * 1.4f) * 0.71f;
         } else if (m == Mode::Pan8D) {
             float pL, pR;
             panner.processSample(L, R, pL, pR);
-            // also add light reverb for depth
             float wetL, wetR;
             reverb.processSample(pL, pR, wetL, wetR);
             L = pL * 0.7f + wetL * 0.3f;
             R = pR * 0.7f + wetR * 0.3f;
         }
 
-        // 5. Volume + limiter
         float vol = volume.load(std::memory_order_relaxed);
         L *= vol;
         R *= vol;
         if (m == Mode::Hard) {
-            // HARD: brickwall brutal, on veut du clip
             if (L >  1.f) L =  1.f; else if (L < -1.f) L = -1.f;
             if (R >  1.f) R =  1.f; else if (R < -1.f) R = -1.f;
         } else {
-            // Normal/Room/Night/8D: limiter original propre
             L = limiter.processSample(L);
             R = limiter.processSample(R);
             L = hardclip(L);
@@ -625,9 +538,6 @@ struct DSPState {
     }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// WASAPI device enumeration helper
-// ─────────────────────────────────────────────────────────────────────────────
 struct DeviceInfo {
     std::wstring id;
     std::wstring name;
@@ -676,11 +586,8 @@ static std::vector<DeviceInfo> EnumerateDevices(EDataFlow flow) {
     return result;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// WASAPI Audio Engine
-// ─────────────────────────────────────────────────────────────────────────────
 static RingBuffer g_ring;
-static RingBuffer g_ring_virt;   // processed audio → virtual output (Discord)
+static RingBuffer g_ring_virt;
 static DSPState   g_dsp;
 static Spectrum   g_spec;
 static std::atomic<bool> g_running{false};
@@ -688,7 +595,6 @@ static std::thread g_capture_thread;
 static std::thread g_render_thread;
 static std::thread g_virt_thread;
 
-// Buffer used by render thread for processed output
 static float g_proc_buf[BLOCK_SIZE * 2];
 
 static void CaptureThread(std::wstring captureDevId) {
@@ -700,7 +606,6 @@ static void CaptureThread(std::wstring captureDevId) {
 
     IMMDevice* pDev = nullptr;
     if (captureDevId.empty()) {
-        // Default capture (loopback is render default)
         pEnum->GetDefaultAudioEndpoint(eCapture, eConsole, &pDev);
     } else {
         pEnum->GetDevice(captureDevId.c_str(), &pDev);
@@ -724,7 +629,6 @@ static void CaptureThread(std::wstring captureDevId) {
             2000000, 0, &wfx, nullptr);
 
         if (FAILED(hr)) {
-            // Try with device's native format
             WAVEFORMATEX* pFmt = nullptr;
             pClient->GetMixFormat(&pFmt);
             if (pFmt) {
@@ -757,7 +661,6 @@ static void CaptureThread(std::wstring captureDevId) {
         pCapture->GetBuffer(&pData, &frames, &flags, nullptr, nullptr);
 
         if (pData && !(flags & AUDCLNT_BUFFERFLAGS_SILENT) && frames > 0) {
-            // Convert to float stereo if needed (assume float for now)
             int to_write = (int)(frames < (UINT32)BLOCK_SIZE ? frames : (UINT32)BLOCK_SIZE);
             memcpy(convert_buf, pData, to_write * CHANNELS * sizeof(float));
             g_ring.write(convert_buf, to_write);
@@ -775,7 +678,6 @@ static void CaptureThread(std::wstring captureDevId) {
 
 static void RenderThread(std::wstring renderDevId) {
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    // Set realtime priority
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
 
     IMMDeviceEnumerator* pEnum = nullptr;
@@ -835,18 +737,15 @@ static void RenderThread(std::wstring renderDevId) {
         UINT32 avail = bufSize - padding;
         if (avail < (UINT32)BLOCK_SIZE) { Sleep(1); continue; }
 
-        // Update DSP params every 32 blocks (~330ms at 48kHz/512)
         if (++param_update_counter >= 32) {
             param_update_counter = 0;
             g_dsp.update_from_params();
         }
 
-        // Read from ring buffer (always consume to keep ring buffer draining)
         int got = g_ring.read(g_proc_buf, BLOCK_SIZE);
         bool mon = g_dsp.monitor.load(std::memory_order_relaxed);
 
         if (got > 0) {
-            // Always process DSP + update spectrum
             for (int i = 0; i < BLOCK_SIZE; i++) {
                 float L = g_proc_buf[i*2];
                 float R = g_proc_buf[i*2+1];
@@ -856,9 +755,7 @@ static void RenderThread(std::wstring renderDevId) {
             }
             g_dsp.loudmax.processBlock(g_proc_buf, BLOCK_SIZE);
             g_spec.push(g_proc_buf, BLOCK_SIZE);
-            // Always feed virtual output (Discord) with processed audio
             g_ring_virt.write(g_proc_buf, BLOCK_SIZE);
-            // Silence monitor output if monitor off
             if (!mon) memset(g_proc_buf, 0, BLOCK_SIZE * CHANNELS * sizeof(float));
         } else {
             memset(g_proc_buf, 0, BLOCK_SIZE * CHANNELS * sizeof(float));
@@ -879,7 +776,6 @@ static void RenderThread(std::wstring renderDevId) {
     CoUninitialize();
 }
 
-// Virtual render thread — reads processed audio from g_ring_virt → Discord device
 static void VirtualRenderThread(std::wstring virtDevId) {
     if (virtDevId.empty()) return;
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
@@ -953,7 +849,7 @@ static void VirtualRenderThread(std::wstring virtDevId) {
     CoUninitialize();
 }
 
-static std::wstring g_virt_dev_id;  // virtual output device ID
+static std::wstring g_virt_dev_id;
 
 static void StartAudio(const std::wstring& capId, const std::wstring& renId) {
     g_running.store(false);
@@ -975,9 +871,6 @@ static void StopAudio() {
     if (g_capture_thread.joinable()) g_capture_thread.join();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Win32 GUI
-// ─────────────────────────────────────────────────────────────────────────────
 #define IDC_BTN_START    1001
 #define IDC_BTN_STOP     1002
 #define IDC_BTN_MONITOR  1003
@@ -1004,12 +897,10 @@ static void StopAudio() {
 #define IDC_BTN_MODE4    1034
 #define IDC_TIMER_SPEC   2001
 
-// Window dimensions
 #define WIN_W 1200
 #define WIN_H 620
 #define SPEC_H 160
 
-// Colors (black & white)
 #define COL_BG       RGB(12,12,12)
 #define COL_PANEL    RGB(24,24,24)
 #define COL_BORDER   RGB(60,60,60)
@@ -1024,9 +915,6 @@ static std::vector<DeviceInfo> g_cap_devs, g_ren_devs;
 static bool g_audio_started = false;
 static int  g_active_mode   = 0;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Settings persistence (AudioBeast.ini next to exe)
-// ─────────────────────────────────────────────────────────────────────────────
 static void GetIniPath(wchar_t* buf, int bufLen) {
     GetModuleFileNameW(nullptr, buf, bufLen);
     wchar_t* p = wcsrchr(buf, L'\\');
@@ -1038,14 +926,11 @@ static void SaveSettings(HWND hwnd) {
     wchar_t ini[MAX_PATH];
     GetIniPath(ini, MAX_PATH);
 
-    // Save device IDs by matching selected combo index to device list
     auto saveDevice = [&](int comboId, const std::vector<DeviceInfo>& devs, int virtOffset, const wchar_t* key) {
         int sel = (int)SendDlgItemMessageW(hwnd, comboId, CB_GETCURSEL, 0, 0);
         std::wstring id;
         if (virtOffset) {
-            // DISCORD OUT: index 0 = None, index 1+ = devs[sel-1]
             if (sel > 0 && sel - 1 < (int)devs.size()) id = devs[sel - 1].id;
-            // else empty = None
         } else {
             if (sel >= 0 && sel < (int)devs.size()) id = devs[sel].id;
         }
@@ -1094,7 +979,6 @@ static void LoadSettings(HWND hwnd) {
         GetPrivateProfileStringW(L"Devices", key, L"", savedId, 512, ini);
         if (!savedId[0]) return;
         if (virtOffset) {
-            // index 0 = None; search devs for match → sel = idx+1
             for (int i = 0; i < (int)devs.size(); i++) {
                 if (devs[i].id == savedId) {
                     SendDlgItemMessageW(hwnd, comboId, CB_SETCURSEL, i + 1, 0);
@@ -1193,19 +1077,16 @@ static void DrawLabel(HDC hdc, const wchar_t* text, int x, int y, int w, int h,
 
 static void DrawSpectrumPanel(HDC hdc) {
     RECT& sr = g_spec_rect;
-    // Background
     HBRUSH brDark = CreateSolidBrush(COL_PANEL);
     FillRect(hdc, &sr, brDark);
     DeleteObject(brDark);
 
-    // Border
     HPEN penBorder = CreatePen(PS_SOLID, 1, COL_BORDER);
     SelectObject(hdc, penBorder);
     SelectObject(hdc, GetStockObject(NULL_BRUSH));
     Rectangle(hdc, sr.left, sr.top, sr.right, sr.bottom);
     DeleteObject(penBorder);
 
-    // Spectrum bars
     if (!g_spec.ready.load(std::memory_order_acquire)) return;
 
     int pw = sr.right - sr.left - 4;
@@ -1213,7 +1094,6 @@ static void DrawSpectrumPanel(HDC hdc) {
     int bx = sr.left + 2;
     int by = sr.top  + 2;
 
-    // Log-scale: map bin to x
     static const int DISP_BINS = 128;
     int bar_w = pw / DISP_BINS;
     if (bar_w < 1) bar_w = 1;
@@ -1223,7 +1103,6 @@ static void DrawSpectrumPanel(HDC hdc) {
     SelectObject(hdc, penWhite);
 
     for (int i = 0; i < DISP_BINS; i++) {
-        // Map i (0..DISP_BINS-1) to log-scale bin index
         float log_pos = (float)i / DISP_BINS;
         float freq_hz = 20.f * powf(22000.f / 20.f, log_pos);
         int bin = (int)(freq_hz * FFT_SIZE / SAMPLE_RATE);
@@ -1231,7 +1110,6 @@ static void DrawSpectrumPanel(HDC hdc) {
 
         float mag = g_spec.mag_front[bin];
         float db  = 20.f * log10f(mag + 1e-6f);
-        // Map -80dB..0dB to 0..ph
         float norm = (db + 80.f) / 80.f;
         if (norm < 0.f) norm = 0.f;
         if (norm > 1.f) norm = 1.f;
@@ -1241,7 +1119,6 @@ static void DrawSpectrumPanel(HDC hdc) {
         int y0 = by + ph - bar_h;
         int y1 = by + ph;
 
-        // Top half brighter
         if (norm > 0.6f) SelectObject(hdc, penWhite);
         else SelectObject(hdc, penGray);
 
@@ -1252,7 +1129,6 @@ static void DrawSpectrumPanel(HDC hdc) {
     DeleteObject(penWhite);
     DeleteObject(penGray);
 
-    // Frequency labels
     const wchar_t* flabs[] = {L"20", L"50", L"100", L"200", L"500", L"1k", L"2k", L"5k", L"10k", L"20k"};
     const float    fhz[]   = {20,    50,    100,    200,    500,    1000, 2000, 5000, 10000, 20000};
     SetTextColor(hdc, COL_GRAY);
@@ -1291,18 +1167,14 @@ static void PaintWindow(HWND hwnd) {
     PAINTSTRUCT ps;
     HDC hdc = BeginPaint(hwnd, &ps);
 
-    // Double buffer
     RECT client;
     GetClientRect(hwnd, &client);
     HDC memDC = CreateCompatibleDC(hdc);
     HBITMAP bmp = CreateCompatibleBitmap(hdc, client.right, client.bottom);
     HBITMAP oldBmp = (HBITMAP)SelectObject(memDC, bmp);
-
-    // Background
     FillRect(memDC, &client, g_br_bg);
 
-    // ── Title bar ─────────────────────────────────────────────────────────────
-    // Icon top-left
+
     if (g_icon) DrawIconEx(memDC, 8, 4, g_icon, 38, 38, 0, nullptr, DI_NORMAL);
     DrawLabel(memDC, L"OBLIQ by bzow", 52, 4, 320, 26, g_font_lg, COL_WHITE, DT_LEFT|DT_VCENTER|DT_SINGLELINE);
     DrawLabel(memDC, L"Professional Audio Processor  \u2014  Dev by UHQ for UHQ user", 52, 30, 580, 14, g_font_sm, COL_GRAY, DT_LEFT|DT_VCENTER|DT_SINGLELINE);
@@ -1310,23 +1182,18 @@ static void PaintWindow(HWND hwnd) {
     COLORREF stcol = g_audio_started ? COL_WHITE : COL_GRAY;
     DrawLabel(memDC, status, WIN_W-155, 6, 145, 20, g_font_md, stcol, DT_RIGHT|DT_VCENTER|DT_SINGLELINE);
 
-    // ── Row 0: Device labels (y=50) ───────────────────────────────────────────
     DrawLabel(memDC, L"CAPTURE DEVICE", 10,  50, 230, 14, g_font_sm, COL_GRAY, DT_LEFT|DT_VCENTER|DT_SINGLELINE);
     DrawLabel(memDC, L"OUTPUT DEVICE",  245, 50, 230, 14, g_font_sm, COL_GRAY, DT_LEFT|DT_VCENTER|DT_SINGLELINE);
     DrawLabel(memDC, L"DISCORD OUT",    480, 50, 230, 14, g_font_sm, COL_GRAY, DT_LEFT|DT_VCENTER|DT_SINGLELINE);
     DrawLabel(memDC, L"-- MODE --",     928, 50, 262, 14, g_font_sm, COL_GRAY, DT_LEFT|DT_VCENTER|DT_SINGLELINE);
 
-    // ── Row 1 labels: GAIN / VOLUME / EQ (y=112) ──────────────────────────────
     DrawLabel(memDC, L"INPUT GAIN", 10,  112, 120, 14, g_font_sm, COL_GRAY, DT_CENTER|DT_SINGLELINE);
     DrawLabel(memDC, L"VOLUME",     145, 112, 80,  14, g_font_sm, COL_GRAY, DT_CENTER|DT_SINGLELINE);
-    // EQ header centred over the 4 bands (x=238..758 → 520px wide)
     DrawLabel(memDC, L"-- EQUALIZER --", 238, 112, 520, 14, g_font_sm, COL_GRAY, DT_CENTER|DT_SINGLELINE);
-    // EQ sub-labels
     const wchar_t* eq_labels[] = {L"BASS", L"MID", L"PRESENCE", L"AIR"};
     for (int i = 0; i < 4; i++)
         DrawLabel(memDC, eq_labels[i], 238 + i*130, 128, 120, 14, g_font_sm, COL_GRAY, DT_CENTER|DT_SINGLELINE);
 
-    // Vertical divider between GAIN/VOL and EQ
     {
         HPEN pv = CreatePen(PS_SOLID, 1, COL_BORDER);
         SelectObject(memDC, pv);
@@ -1335,7 +1202,6 @@ static void PaintWindow(HWND hwnd) {
         DeleteObject(pv);
     }
 
-    // ── Row 2 labels: COMP / 8D PAN / REVERB (y=190) ─────────────────────────
     DrawLabel(memDC, L"-- COMPRESSOR --", 10,  190, 260, 14, g_font_sm, COL_GRAY, DT_LEFT|DT_SINGLELINE);
     DrawLabel(memDC, L"THRESHOLD",        10,  206, 120, 14, g_font_sm, COL_GRAY, DT_CENTER|DT_SINGLELINE);
     DrawLabel(memDC, L"RATIO",            140, 206, 120, 14, g_font_sm, COL_GRAY, DT_CENTER|DT_SINGLELINE);
@@ -1349,7 +1215,6 @@ static void PaintWindow(HWND hwnd) {
     DrawLabel(memDC, L"DECAY",            680, 206, 120, 14, g_font_sm, COL_GRAY, DT_CENTER|DT_SINGLELINE);
     DrawLabel(memDC, L"WALL",             810, 206, 120, 14, g_font_sm, COL_GRAY, DT_CENTER|DT_SINGLELINE);
 
-    // Vertical dividers row 2
     {
         HPEN pv = CreatePen(PS_SOLID, 1, COL_BORDER);
         SelectObject(memDC, pv);
@@ -1358,17 +1223,13 @@ static void PaintWindow(HWND hwnd) {
         DeleteObject(pv);
     }
 
-    // ── Separator before spectrum ─────────────────────────────────────────────
     HPEN penSep = CreatePen(PS_SOLID, 1, COL_BORDER);
     SelectObject(memDC, penSep);
     MoveToEx(memDC, 10, 285, nullptr);
     LineTo(memDC, WIN_W-10, 285);
     DeleteObject(penSep);
 
-    // Spectrum
     DrawSpectrumPanel(memDC);
-
-    // Blit
     BitBlt(hdc, 0, 0, client.right, client.bottom, memDC, 0, 0, SRCCOPY);
     SelectObject(memDC, oldBmp);
     DeleteObject(bmp);
@@ -1394,28 +1255,18 @@ static void UpdateSliderValues() {
 
     auto geti = [](HWND h) { return (int)SendMessage(h, TBM_GETPOS, 0, 0); };
 
-    // Gain: slider 0..600, pos 200 = 0dB → range -20..+40dB
     if (hGain)  g_dsp.gain_db.store((geti(hGain) - 200) / 10.f);
-    // Volume: 0..300 → 0.0..3.0x (300%)
     if (hVol)   g_dsp.volume.store(geti(hVol) / 100.f);
-    // EQ: slider 0..240 → -12..+12 dB
     if (hBass)  g_dsp.bass_db.store((geti(hBass)  - 120) / 10.f);
     if (hMid)   g_dsp.mid_db.store((geti(hMid)   - 120) / 10.f);
     if (hPres)  g_dsp.presence_db.store((geti(hPres) - 120) / 10.f);
     if (hAir)   g_dsp.air_db.store((geti(hAir)  - 120) / 10.f);
-    // Compressor threshold: 0..100 → 0.01..1.0 lin
     if (hCmpT)  g_dsp.comp_thresh.store(geti(hCmpT) / 100.f);
-    // Compressor ratio: 10..200 → 1.0..20.0
     if (hCmpR)  g_dsp.comp_ratio.store(geti(hCmpR) / 10.f);
-    // Reverb mix: 0..100 → 0..1
     if (hRevM)  g_dsp.reverb_mix.store(geti(hRevM) / 100.f);
-    // Reverb decay: 0..100 → 0..1
     if (hRevD)  g_dsp.reverb_decay.store(geti(hRevD) / 100.f);
-    // Reverb wall: 0..100 → 0..0.99
     if (hRevW)  g_dsp.reverb_wall.store(geti(hRevW) / 101.f);
-    // Pan rate: 1..100 → 0.05..2.0 Hz
     if (hPanR)  g_dsp.pan8d_rate.store(geti(hPanR) / 50.f);
-    // Pan depth: 0..100 → 0..1
     if (hPanD)  g_dsp.pan8d_depth.store(geti(hPanD) / 100.f);
 }
 
@@ -1431,7 +1282,6 @@ static void OnStartAudio(HWND hwnd) {
     if (ci >= 0 && ci < (int)g_cap_devs.size()) capId = g_cap_devs[ci].id;
     if (ri >= 0 && ri < (int)g_ren_devs.size()) renId = g_ren_devs[ri].id;
 
-    // vi==0 means "-- None --"; vi>0 → index into g_ren_devs (offset by 1)
     g_virt_dev_id.clear();
     if (vi > 0 && vi - 1 < (int)g_ren_devs.size())
         g_virt_dev_id = g_ren_devs[vi - 1].id;
@@ -1453,7 +1303,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         g_hwnd = hwnd;
         InitCommonControls();
 
-        // Fonts
         g_font_sm = CreateFontW(12, 0, 0, 0, FW_NORMAL, 0, 0, 0,
             DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
         g_font_md = CreateFontW(14, 0, 0, 0, FW_SEMIBOLD, 0, 0, 0,
@@ -1461,12 +1310,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         g_font_lg = CreateFontW(22, 0, 0, 0, FW_BOLD, 0, 0, 0,
             DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
 
-        // Enumerate devices
         g_cap_devs = EnumerateDevices(eCapture);
         g_ren_devs = EnumerateDevices(eRender);
 
-        // ── Row 0: Device combos + buttons (y=66) ────────────────────────────
-        // Capture combo: x=10, w=230
         HWND hCap = CreateWindowExW(0, L"COMBOBOX", nullptr,
             WS_CHILD|WS_VISIBLE|CBS_DROPDOWNLIST|WS_VSCROLL,
             10, 66, 230, 200, hwnd, (HMENU)IDC_CMB_CAPTURE,
@@ -1476,7 +1322,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         if (!g_cap_devs.empty()) SendMessage(hCap, CB_SETCURSEL, 0, 0);
         SendMessage(hCap, WM_SETFONT, (WPARAM)g_font_sm, TRUE);
 
-        // Render (monitor/headphones) combo: x=245, w=230
         HWND hRen = CreateWindowExW(0, L"COMBOBOX", nullptr,
             WS_CHILD|WS_VISIBLE|CBS_DROPDOWNLIST|WS_VSCROLL,
             245, 66, 230, 200, hwnd, (HMENU)IDC_CMB_RENDER,
@@ -1486,7 +1331,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         if (!g_ren_devs.empty()) SendMessage(hRen, CB_SETCURSEL, 0, 0);
         SendMessage(hRen, WM_SETFONT, (WPARAM)g_font_sm, TRUE);
 
-        // Discord virtual output combo: x=480, w=230 ("-- None --" + all render devs)
         HWND hVirt = CreateWindowExW(0, L"COMBOBOX", nullptr,
             WS_CHILD|WS_VISIBLE|CBS_DROPDOWNLIST|WS_VSCROLL,
             480, 66, 230, 200, hwnd, (HMENU)IDC_CMB_VIRTUAL,
@@ -1497,30 +1341,23 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         SendMessage(hVirt, CB_SETCURSEL, 0, 0);
         SendMessage(hVirt, WM_SETFONT, (WPARAM)g_font_sm, TRUE);
 
-        // START / STOP / MONITOR: x=717
         HWND hStart = CreateBtn(hwnd, IDC_BTN_START,   L"START",   717, 66, 52, 26);
         HWND hStop  = CreateBtn(hwnd, IDC_BTN_STOP,    L"STOP",    773, 66, 52, 26);
         CreateODBtn(hwnd, IDC_BTN_MONITOR, L"", 829, 66, 92, 26);
         SendMessage(hStart, WM_SETFONT, (WPARAM)g_font_sm, TRUE);
         SendMessage(hStop,  WM_SETFONT, (WPARAM)g_font_sm, TRUE);
 
-        // Mode buttons (5 in one row): x=928, w=48 each, gap=4
         static const wchar_t* mode_btn_labels[] = {L"NORMAL", L"ROOM", L"HARD", L"NIGHT", L"8D"};
         for (int i = 0; i < 5; i++)
             CreateODBtn(hwnd, IDC_BTN_MODE0+i, mode_btn_labels[i], 928 + i*52, 66, 48, 26);
 
-        // ── Row 1: GAIN / VOLUME / EQ sliders (y=145) ────────────────────────
-        // Gain: 0..800 → pos 200 = 0dB, max = +60dB
         CreateSlider(hwnd, IDC_SLD_GAIN,    10,  145, 120, 22, 0, 1000, 600);
-        // Volume: 0..800 → 0..8.0x (800%)
         CreateSlider(hwnd, IDC_SLD_VOLUME, 145,  145,  80, 22, 0, 800, 400);
-        // EQ: x=238, 4 × 120px bands, gap 10px
         CreateSlider(hwnd, IDC_SLD_BASS,     238,       145, 120, 22, 0, 240, 120);
         CreateSlider(hwnd, IDC_SLD_MID,      238+130,   145, 120, 22, 0, 240, 120);
         CreateSlider(hwnd, IDC_SLD_PRESENCE, 238+260,   145, 120, 22, 0, 240, 120);
         CreateSlider(hwnd, IDC_SLD_AIR,      238+390,   145, 120, 22, 0, 240, 120);
 
-        // ── Row 2: COMP / 8D PAN / REVERB sliders (y=222) ───────────────────
         CreateSlider(hwnd, IDC_SLD_COMP_THR, 10,  222, 120, 22,  1, 100, 70);
         CreateSlider(hwnd, IDC_SLD_COMP_RAT, 140, 222, 120, 22, 10, 200, 40);
         CreateSlider(hwnd, IDC_SLD_PAN_RATE, 280, 222, 120, 22,  1, 100, 12);
@@ -1529,17 +1366,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         CreateSlider(hwnd, IDC_SLD_REV_DEC,  680, 222, 120, 22,  0, 100, 60);
         CreateSlider(hwnd, IDC_SLD_REV_WALL, 810, 222, 120, 22,  0, 100, 40);
 
-        // Init DSP
         g_dsp.init();
         g_spec.init();
-
-        // Repaint timer for spectrum
-        SetTimer(hwnd, IDC_TIMER_SPEC, 33, nullptr);  // ~30 fps
-
-        // Restore saved settings (overrides defaults if INI exists)
+        SetTimer(hwnd, IDC_TIMER_SPEC, 33, nullptr);
         LoadSettings(hwnd);
-
-        // Apply initial slider values
         UpdateSliderValues();
         break;
     }
@@ -1632,7 +1462,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             SetTextColor(di->hDC, fg);
             SetBkMode(di->hDC, TRANSPARENT);
             SelectObject(di->hDC, g_font_md);
-            // Get button text
             wchar_t txt[32] = {};
             GetWindowTextW(di->hwndItem, txt, 31);
             DrawTextW(di->hDC, txt, -1, &di->rcItem, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
@@ -1667,9 +1496,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Entry point
-// ─────────────────────────────────────────────────────────────────────────────
 int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 
